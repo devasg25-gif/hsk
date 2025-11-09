@@ -489,18 +489,14 @@
         // --- Variabel Global ---
         let currentLevel = null;
         let currentModuleIndex = null;
-        const synth = window.speechSynthesis;
-
-        // --- Variabel Firebase ---
-        let app, auth, db, userId;
-        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        // (FIX) Hapus const synth global. Akan dipanggil di dalam fungsi speak().
+        // const synth = window.speechSynthesis; 
 
         // --- Elemen DOM ---
         const levelSelector = document.getElementById('level-selector');
         const moduleList = document.getElementById('module-list');
         const contentArea = document.getElementById('content-area');
         const welcomeMessage = document.getElementById('welcome-message');
-        const aiChatBtn = document.getElementById('ai-chat-btn'); 
 
         // --- Variabel Modal & Kanvas ---
         const modal = document.getElementById('writing-modal');
@@ -534,75 +530,9 @@
         let recognition = null;
         let recognitionIsActive = false;
 
-        // --- Variabel Gamifikasi ---
-        let userProgress = {
-            xp: 0,
-            level: 1,
-            xpToNext: 100
-        };
-        const xpDisplay = document.getElementById('xp-display');
-
-        // --- Variabel AI Chatbot ---
-        let chatHistory = [];
-        const chatSystemPrompt = `
-            Anda adalah seorang tutor Mandarin HSK 1 yang ramah dan sabar bernama "Lao Shi Bot". 
-            Pengguna adalah seorang remaja (14 tahun) pemula absolut.
-            
-            ATURAN KETAT:
-            1. SELALU balas dalam bahasa Mandarin yang SANGAT SEDERHANA.
-            2. HANYA gunakan kosakata dari daftar HSK 1. Jangan pernah menggunakan kata di luar HSK 1.
-            3. Jaga agar balasan tetap pendek (1-2 kalimat).
-            4. Jika pengguna bertanya dalam bahasa Indonesia atau Inggris, jawab dalam bahasa Mandarin sederhana seolah-olah Anda tidak mengerti, dan dorong mereka untuk mencoba dalam bahasa Mandarin. (Contoh: "你好! 请说汉语。")
-            5. Mulailah percakapan pertama dengan menyapa dan menanyakan nama mereka.
-        `;
-
-
-        // --- (FIX) Fungsi Setup Firebase ---
-        async function setupFirebase() {
-            try {
-                // Gunakan variabel global yang disediakan oleh platform
-                if (typeof __firebase_config === 'undefined' || typeof __initial_auth_token === 'undefined') {
-                    throw new Error("Variabel Firebase tidak tersedia.");
-                }
-
-                const firebaseConfig = JSON.parse(__firebase_config);
-                app = initializeApp(firebaseConfig);
-                db = getFirestore(app);
-                auth = getAuth(app);
-                // Aktifkan log untuk debugging
-                setLogLevel('Debug');
-
-                // Autentikasi pengguna
-                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-                    await signInWithCustomToken(auth, __initial_auth_token);
-                } else {
-                    console.log("Token tidak ada, sign in anonim.");
-                    await signInAnonymously(auth);
-                }
-                
-                userId = auth.currentUser?.uid;
-                if (!userId) {
-                    // Fallback jika uid masih null setelah sign in (jarang terjadi)
-                    userId = crypto.randomUUID();
-                    console.warn("Auth UID null, menggunakan UUID fallback:", userId);
-                } else {
-                    console.log("Firebase initialized and user authenticated:", userId);
-                }
-                
-            } catch (error) {
-                console.error("Firebase setup failed:", error);
-                showCustomAlert("Gagal terhubung ke database. Progres tidak akan disimpan.");
-                userId = crypto.randomUUID(); // Fallback agar XP tetap berfungsi lokal
-            }
-        }
 
         // --- Fungsi Utama ---
-        // (FIX) Ganti ke window.load
-        window.addEventListener('load', async () => {
-            // Menunggu Firebase siap sebelum memuat progres
-            await setupFirebase(); 
-            
-            await loadProgress(); 
+        document.addEventListener('DOMContentLoaded', () => {
             loadLevelSelector();
             if (Object.keys(appData).length > 0) {
                 const defaultLevel = Object.keys(appData)[0];
@@ -612,71 +542,8 @@
             setupModalListeners();
             setupCustomAlertModal(); 
             setupSpeechRecognition(); 
-            aiChatBtn.addEventListener('click', loadAIChatInterface); 
         });
 
-        // --- Fungsi Gamifikasi (Diperbarui untuk Firebase) ---
-        async function loadProgress() {
-            if (!db || !userId) {
-                console.warn("Firestore not ready, loading default progress.");
-                updateXPDisplay();
-                return;
-            }
-            
-            try {
-                const docRef = doc(db, `artifacts/${appId}/users/${userId}/progress`, "userStats");
-                const docSnap = await getDoc(docRef);
-
-                if (docSnap.exists()) {
-                    userProgress = docSnap.data();
-                    console.log("Progress dimuat:", userProgress);
-                } else {
-                    console.log("No progress found, creating new one.");
-                    await saveProgress(); 
-                }
-            } catch (error) {
-                console.error("Error loading progress:", error);
-            }
-            updateXPDisplay();
-        }
-
-        async function saveProgress() {
-            updateXPDisplay(); 
-            
-            if (!db || !userId) {
-                console.warn("Firestore not ready, cannot save progress.");
-                return;
-            }
-
-            try {
-                const docRef = doc(db, `artifacts/${appId}/users/${userId}/progress`, "userStats");
-                await setDoc(docRef, userProgress, { merge: true }); 
-                console.log("Progress disimpan ke Firestore.");
-            } catch (error) {
-                console.error("Error saving progress:", error);
-            }
-        }
-
-        function updateXPDisplay() {
-            xpDisplay.innerText = `Level: ${userProgress.level} | XP: ${userProgress.xp} / ${userProgress.xpToNext}`;
-        }
-
-        function addXP(points) {
-            userProgress.xp += points;
-            let levelUp = false;
-            while (userProgress.xp >= userProgress.xpToNext) {
-                levelUp = true;
-                userProgress.level++;
-                userProgress.xp -= userProgress.xpToNext;
-                userProgress.xpToNext = Math.floor(userProgress.xpToNext * 1.5); 
-            }
-            if (levelUp) {
-                showCustomAlert(`🎉 Level Up! Kamu sekarang Level ${userProgress.level}!`);
-            }
-            saveProgress(); 
-        }
-
-        // --- Fungsi Pemuatan Konten ---
         function loadLevelSelector() {
             levelSelector.innerHTML = '';
             for (const levelKey in appData) {
@@ -700,9 +567,6 @@
         }
         function loadModuleMenu(levelKey) {
             moduleList.innerHTML = '';
-            moduleList.appendChild(aiChatBtn); 
-            aiChatBtn.classList.remove('chat-active');
-            
             if (appData[levelKey] && appData[levelKey].modules) {
                 const modules = appData[levelKey].modules;
                 modules.forEach((module, index) => {
@@ -716,22 +580,13 @@
                 console.error("Error: Tidak dapat menemukan modul untuk level:", levelKey);
             }
         }
-
-        function clearActiveModules() {
-            Array.from(moduleList.children).forEach(li => {
-                li.classList.remove('active');
-                li.classList.remove('chat-active');
-            });
-        }
-
         function loadModuleContent(levelKey, moduleIndex) {
             currentLevel = levelKey;
             currentModuleIndex = moduleIndex;
             welcomeMessage.style.display = 'none';
-            
-            clearActiveModules();
-            moduleList.querySelector(`li[data-index="${moduleIndex}"]`).classList.add('active');
-
+            Array.from(moduleList.children).forEach(li => {
+                li.classList.toggle('active', parseInt(li.dataset.index) === moduleIndex);
+            });
             const module = appData[levelKey].modules[moduleIndex];
             contentArea.innerHTML = ''; 
             const title = document.createElement('h3');
@@ -753,119 +608,6 @@
                 contentArea.appendChild(renderStoryGenerator(module));
             }
         }
-
-        // --- Fungsi AI Chatbot ---
-        function loadAIChatInterface() {
-            clearActiveModules();
-            aiChatBtn.classList.add('chat-active');
-            welcomeMessage.style.display = 'none';
-            
-            contentArea.innerHTML = `
-                <h3>Obrolan AI 💬</h3>
-                <div id="chat-container">
-                    <div id="chat-log">
-                        <!-- Pesan chat akan muncul di sini -->
-                    </div>
-                    <form id="chat-input-form">
-                        <input type="text" id="chat-input" placeholder="Ketik dalam bahasa Mandarin..." autocomplete="off">
-                        <button id="chat-send-btn">Kirim</button>
-                    </form>
-                </div>
-            `;
-            
-            const chatForm = document.getElementById('chat-input-form');
-            chatForm.addEventListener('submit', handleChatSubmit);
-
-            if (chatHistory.length === 0) {
-                chatHistory.push({ role: "system", parts: [{ text: chatSystemPrompt }] });
-                callChatGemini(); 
-            } else {
-                const chatLog = document.getElementById('chat-log');
-                chatHistory.forEach(msg => {
-                    if (msg.role === 'user') {
-                        renderChatMessage(msg.parts[0].text, 'user', chatLog);
-                    } else if (msg.role === 'model') {
-                        renderChatMessage(msg.parts[0].text, 'ai', chatLog);
-                    }
-                });
-            }
-        }
-
-        async function handleChatSubmit(e) {
-            e.preventDefault();
-            const input = document.getElementById('chat-input');
-            const sendBtn = document.getElementById('chat-send-btn');
-            const chatLog = document.getElementById('chat-log');
-            const userMessage = input.value.trim();
-
-            if (userMessage === '') return;
-
-            input.value = '';
-            input.disabled = true;
-            sendBtn.disabled = true;
-
-            renderChatMessage(userMessage, 'user', chatLog);
-            chatHistory.push({ role: "user", parts: [{ text: userMessage }] });
-
-            await callChatGemini();
-
-            input.disabled = false;
-            sendBtn.disabled = false;
-            input.focus();
-        }
-
-        function renderChatMessage(message, sender, chatLog) {
-            const msgDiv = document.createElement('div');
-            msgDiv.className = `chat-message ${sender}-message`;
-            msgDiv.innerText = message;
-            chatLog.appendChild(msgDiv);
-            chatLog.scrollTop = chatLog.scrollHeight; 
-        }
-
-        async function callChatGemini() {
-            const chatLog = document.getElementById('chat-log');
-            const loadingDiv = document.createElement('div');
-            loadingDiv.className = 'chat-message ai-message';
-            loadingDiv.innerHTML = '<div class="loading-spinner" style="margin: 0; border-top-color: var(--primary-color);"></div>';
-            chatLog.appendChild(loadingDiv);
-            chatLog.scrollTop = chatLog.scrollHeight;
-
-            const payload = {
-                contents: chatHistory,
-                systemInstruction: chatHistory.length <= 1 ? { parts: [{ text: chatSystemPrompt }] } : undefined,
-                safetySettings: [
-                    { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_MEDIUM_AND_ABOVE" },
-                    { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_MEDIUM_AND_ABOVE" },
-                    { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_MEDIUM_AND_ABOVE" },
-                    { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_MEDIUM_AND_ABOVE" }
-                ]
-            };
-            const options = {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload)
-            };
-
-            try {
-                const result = await fetchWithBackoff(apiUrl, options); 
-                chatLog.removeChild(loadingDiv); 
-
-                if (result.candidates && result.candidates[0].content) {
-                    const aiResponse = result.candidates[0].content.parts[0].text;
-                    chatHistory.push({ role: "model", parts: [{ text: aiResponse }] });
-                    renderChatMessage(aiResponse, 'ai', chatLog);
-                    addXP(5); 
-                } else {
-                    renderChatMessage("Maaf, terjadi kesalahan. Coba lagi.", 'ai', chatLog);
-                    console.error('Respons API Chat tidak valid:', result);
-                }
-            } catch (error) {
-                chatLog.removeChild(loadingDiv);
-                console.error('Error memanggil Gemini Chat API:', error);
-                renderChatMessage("Gagal terhubung ke AI. Cek koneksi Anda.", 'ai', chatLog);
-            }
-        }
-
 
         // --- Fungsi Render ---
         function renderVocabulary(vocabularyList) {
@@ -925,7 +667,7 @@
                 });
                 back.querySelector('.audio-button').addEventListener('click', (e) => {
                     e.stopPropagation(); 
-                    speak(item.char, e.target); 
+                    speak(item.char);
                 });
                 card.querySelectorAll('.write-btn').forEach(btn => {
                     btn.addEventListener('click', (e) => {
@@ -1051,7 +793,7 @@
                 const playBtn = document.createElement('button');
                 playBtn.className = 'play-audio-btn';
                 playBtn.innerText = '🔊';
-                playBtn.onclick = (e) => speak(q.audioChar, e.target); 
+                playBtn.onclick = () => speak(q.audioChar);
                 qDiv.appendChild(playBtn);
                 
                 const p = document.createElement('p');
@@ -1077,7 +819,7 @@
                 
                 qDiv.appendChild(optionsDiv);
                 container.appendChild(qDiv);
-                setTimeout(() => speak(q.audioChar, playBtn), 300); 
+                setTimeout(() => speak(q.audioChar), 300);
             }
 
             function checkListeningAnswer(q, selected, qDiv, optionsDiv) {
@@ -1088,7 +830,6 @@
                     listeningScore++;
                     qDiv.classList.add('correct');
                     correctLabel.classList.add('correct');
-                    addXP(15); 
                 } else {
                     qDiv.classList.add('incorrect');
                     correctLabel.classList.add('correct'); 
@@ -1210,7 +951,6 @@
                         score++;
                         qDiv.classList.add('correct');
                         correctLabel.classList.add('correct');
-                        addXP(10); 
                     } else {
                         qDiv.classList.add('incorrect');
                         selected.parentElement.classList.add('incorrect');
@@ -1230,8 +970,12 @@
         function retryQuiz() { loadModuleContent(currentLevel, currentModuleIndex); }
         
         // --- (FIX) Perbaikan Fungsi 'speak' ---
-        function speak(text, buttonElement = null) {
+        function speak(text) {
+            // (FIX) Dapatkan 'synth' di dalam fungsi, bukan global.
+            // Ini mencegah error jika API belum siap saat script dimuat.
             const synth = window.speechSynthesis;
+
+            // (FIX) Tambahkan penjaga jika API tidak didukung
             if (!synth) {
                 console.error("Speech Synthesis API not supported.");
                 // (BARU) Tampilkan pesan error ke pengguna
@@ -1239,43 +983,21 @@
                 return;
             }
 
-            if (buttonElement) {
-                buttonElement.classList.add('is-loading');
-                buttonElement.disabled = true;
-            }
-
-            // (FIX) Hentikan audio sebelumnya jika ada
-            if (synth.speaking) {
-                synth.cancel();
-            }
+            if (synth.speaking) synth.cancel();
             
             const utterThis = new SpeechSynthesisUtterance(text);
             utterThis.lang = 'zh-CN';
             utterThis.pitch = 1;
             utterThis.rate = 0.8;
             
-            utterThis.onend = function() {
-                if (buttonElement) {
-                    buttonElement.classList.remove('is-loading');
-                    buttonElement.disabled = false;
-                }
-            };
-            
+            // (FIX) Tambahkan .onerror untuk debugging
             utterThis.onerror = function(e) {
                 console.error("Speech Synthesis error:", e);
-                if (buttonElement) {
-                    buttonElement.classList.remove('is-loading');
-                    buttonElement.disabled = false;
-                }
                 showCustomAlert("Gagal memutar audio. " + e.error);
             };
 
-            // (FIX) Tambahkan sedikit jeda untuk mengatasi 'race condition' di beberapa browser
-            setTimeout(() => {
-                 synth.speak(utterThis);
-            }, 100);
+            synth.speak(utterThis);
         }
-
 
         function shuffleArray(array) {
             for (let i = array.length - 1; i > 0; i--) {
@@ -1376,7 +1098,6 @@
 
             if (normalizedTranscript === normalizedTarget) {
                 resultDiv.innerHTML = `<span class="correct">✔ Benar!</span> Anda berkata: ${transcript}`;
-                addXP(2); 
             } else {
                 resultDiv.innerHTML = `
                     <span class="incorrect">✘ Coba lagi.</span>
@@ -1389,9 +1110,11 @@
         // --- Fungsi Modal Menulis ---
         function cleanupHanziWriter() {
             if (writer) {
+                // (FIX) Panggil cancelQuiz() SEBELUM destroy()
                 writer.cancelQuiz(); 
                 writer = null; 
             }
+            // Bersihkan sisa-sisa SVG dari DOM
             document.getElementById('hanzi-writer-target').innerHTML = '';
         }
 
@@ -1428,7 +1151,6 @@
                         onComplete: (summary) => {
                             console.log('Latihan selesai!', summary);
                             setTimeout(() => showCustomAlert('Bagus! Kamu menyelesaikan latihan jiplak.'), 100);
-                            addXP(5); 
                         }
                     });
                 }
@@ -1550,7 +1272,7 @@
             return { x, y };
         }
 
-        // --- FUNGSI GEMINI API (Lainnya) ---
+        // --- FUNGSI GEMINI API (Tidak berubah) ---
         async function fetchWithBackoff(url, options, retries = 3, delay = 1000) {
             let lastError;
             for (let i = 0; i < retries; i++) {
@@ -1649,13 +1371,7 @@
             Wǒ jiào Dàwèi.
             Nama saya David.
             `;
-            
-            loadingElement.style.display = 'block';
-            resultElement.style.display = 'none';
             await callGemini(prompt, loadingElement, resultElement);
-            if (resultElement.innerText.trim() !== '' && !resultElement.innerText.startsWith('Gagal')) {
-                addXP(25);
-            }
         }
 
     </script>
