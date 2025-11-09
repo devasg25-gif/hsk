@@ -473,7 +473,7 @@
         // (BARU) Import Firebase
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getAuth, signInAnonymously, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, doc, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { getFirestore, doc, getDoc, setDoc, setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
         // --- Kunci API Gemini ---
         const apiKey = "";
@@ -489,10 +489,9 @@
         // --- Variabel Global ---
         let currentLevel = null;
         let currentModuleIndex = null;
-        // (FIX) Kembalikan synth untuk API browser
         const synth = window.speechSynthesis;
 
-        // --- (BARU) Variabel Firebase ---
+        // --- Variabel Firebase ---
         let app, auth, db, userId;
         const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
 
@@ -558,24 +557,37 @@
         `;
 
 
-        // --- (BARU) Fungsi Setup Firebase ---
+        // --- (FIX) Fungsi Setup Firebase ---
         async function setupFirebase() {
             try {
                 // Gunakan variabel global yang disediakan oleh platform
+                if (typeof __firebase_config === 'undefined' || typeof __initial_auth_token === 'undefined') {
+                    throw new Error("Variabel Firebase tidak tersedia.");
+                }
+
                 const firebaseConfig = JSON.parse(__firebase_config);
                 app = initializeApp(firebaseConfig);
                 db = getFirestore(app);
                 auth = getAuth(app);
+                // Aktifkan log untuk debugging
+                setLogLevel('Debug');
 
                 // Autentikasi pengguna
                 if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
                     await signInWithCustomToken(auth, __initial_auth_token);
                 } else {
+                    console.log("Token tidak ada, sign in anonim.");
                     await signInAnonymously(auth);
                 }
                 
-                userId = auth.currentUser?.uid || crypto.randomUUID();
-                console.log("Firebase initialized and user authenticated:", userId);
+                userId = auth.currentUser?.uid;
+                if (!userId) {
+                    // Fallback jika uid masih null setelah sign in (jarang terjadi)
+                    userId = crypto.randomUUID();
+                    console.warn("Auth UID null, menggunakan UUID fallback:", userId);
+                } else {
+                    console.log("Firebase initialized and user authenticated:", userId);
+                }
                 
             } catch (error) {
                 console.error("Firebase setup failed:", error);
@@ -585,11 +597,12 @@
         }
 
         // --- Fungsi Utama ---
-        document.addEventListener('DOMContentLoaded', async () => {
-            // (BARU) Menunggu Firebase siap sebelum memuat progres
+        // (FIX) Ganti ke window.load
+        window.addEventListener('load', async () => {
+            // Menunggu Firebase siap sebelum memuat progres
             await setupFirebase(); 
             
-            await loadProgress(); // (BARU) Sekarang async
+            await loadProgress(); 
             loadLevelSelector();
             if (Object.keys(appData).length > 0) {
                 const defaultLevel = Object.keys(appData)[0];
@@ -604,7 +617,6 @@
 
         // --- Fungsi Gamifikasi (Diperbarui untuk Firebase) ---
         async function loadProgress() {
-            // (BARU) Keluar jika db tidak siap
             if (!db || !userId) {
                 console.warn("Firestore not ready, loading default progress.");
                 updateXPDisplay();
@@ -612,37 +624,34 @@
             }
             
             try {
-                // (BARU) Tentukan path dokumen yang benar
                 const docRef = doc(db, `artifacts/${appId}/users/${userId}/progress`, "userStats");
                 const docSnap = await getDoc(docRef);
 
                 if (docSnap.exists()) {
                     userProgress = docSnap.data();
+                    console.log("Progress dimuat:", userProgress);
                 } else {
                     console.log("No progress found, creating new one.");
-                    await saveProgress(); // Simpan status default ke DB
+                    await saveProgress(); 
                 }
             } catch (error) {
                 console.error("Error loading progress:", error);
-                // Muat default jika ada error
             }
             updateXPDisplay();
         }
 
         async function saveProgress() {
-            updateXPDisplay(); // Update UI langsung
+            updateXPDisplay(); 
             
-            // (BARU) Keluar jika db tidak siap
             if (!db || !userId) {
                 console.warn("Firestore not ready, cannot save progress.");
                 return;
             }
 
             try {
-                 // (BARU) Tentukan path dokumen yang benar
                 const docRef = doc(db, `artifacts/${appId}/users/${userId}/progress`, "userStats");
-                // (BARU) Gunakan setDoc untuk menyimpan
-                await setDoc(docRef, userProgress, { merge: true }); // Merge agar tidak menimpa data lain
+                await setDoc(docRef, userProgress, { merge: true }); 
+                console.log("Progress disimpan ke Firestore.");
             } catch (error) {
                 console.error("Error saving progress:", error);
             }
@@ -664,7 +673,7 @@
             if (levelUp) {
                 showCustomAlert(`🎉 Level Up! Kamu sekarang Level ${userProgress.level}!`);
             }
-            saveProgress(); // Ini sekarang async, akan berjalan di latar belakang
+            saveProgress(); 
         }
 
         // --- Fungsi Pemuatan Konten ---
@@ -1222,9 +1231,10 @@
         
         // --- (FIX) Perbaikan Fungsi 'speak' ---
         function speak(text, buttonElement = null) {
-            // (FIX) Kembalikan ke API browser
+            const synth = window.speechSynthesis;
             if (!synth) {
                 console.error("Speech Synthesis API not supported.");
+                // (BARU) Tampilkan pesan error ke pengguna
                 showCustomAlert("Maaf, fitur audio (Text-to-Speech) tidak didukung di browser Anda.");
                 return;
             }
@@ -1234,8 +1244,9 @@
                 buttonElement.disabled = true;
             }
 
+            // (FIX) Hentikan audio sebelumnya jika ada
             if (synth.speaking) {
-                synth.cancel(); // Hentikan audio sebelumnya jika ada
+                synth.cancel();
             }
             
             const utterThis = new SpeechSynthesisUtterance(text);
@@ -1259,7 +1270,7 @@
                 showCustomAlert("Gagal memutar audio. " + e.error);
             };
 
-            // Tambahkan sedikit jeda untuk mengatasi 'race condition' di beberapa browser
+            // (FIX) Tambahkan sedikit jeda untuk mengatasi 'race condition' di beberapa browser
             setTimeout(() => {
                  synth.speak(utterThis);
             }, 100);
@@ -1579,7 +1590,7 @@
                 body: JSON.stringify(payload)
             };
             try {
-                const result = await fetchWithBackoff(apiUrl, options); 
+                const result = await fetchWithBackoff(apiUrl, options);
                 if (result.candidates && result.candidates.length > 0 &&
                     result.candidates[0].content && result.candidates[0].content.parts &&
                     result.candidates[0].content.parts.length > 0) {
